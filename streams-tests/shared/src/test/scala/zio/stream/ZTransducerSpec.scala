@@ -39,6 +39,26 @@ object ZTransducerSpec extends ZIOBaseSpec {
           assertM(run(parser, List(Chunk("1"))).either)(isLeft(equalTo("Ouch")))
         } @@ zioTag(errors)
       ),
+      suite("filterInput")(
+        testM("happy path") {
+          val filter = ZTransducer.identity[Int].filterInput[Int](_ > 2)
+          assertM(run(filter, List(Chunk(1, 2, 3))))(equalTo(Chunk(3)))
+        },
+        testM("error") {
+          val parser = initErrorParser.filterInput[Int](_ > 2)
+          assertM(run(parser, List(Chunk(1, 2, 3))).either)(isLeft(equalTo("Ouch")))
+        } @@ zioTag(errors)
+      ),
+      suite("filterInputM")(
+        testM("happy path") {
+          val filter = ZTransducer.identity[Int].filterInputM[Any, String, Int](x => UIO.succeed(x > 2))
+          assertM(run(filter, List(Chunk(1, 2, 3))))(equalTo(Chunk(3)))
+        },
+        testM("error") {
+          val parser = initErrorParser.filterInputM[Any, String, Int](x => UIO.succeed(x > 2))
+          assertM(run(parser, List(Chunk(1, 2, 3))).either)(isLeft(equalTo("Ouch")))
+        } @@ zioTag(errors)
+      ),
       suite("map")(
         testM("happy path") {
           val parser = ZTransducer.identity[Int].map(_.toString)
@@ -717,6 +737,18 @@ object ZTransducerSpec extends ZIOBaseSpec {
             ZTransducer.utf16Decode.push.use { push =>
               for {
                 part1 <- push(Some(Chunk[Byte](-1, -2) ++ Chunk.fromArray(s.getBytes(StandardCharsets.UTF_16LE))))
+                part2 <- push(None)
+              } yield assert((part1 ++ part2).mkString)(equalTo(s))
+            }
+          }
+        }
+      ),
+      suite("usASCII")(
+        testM("US-ASCII strings") {
+          checkM(Gen.usASCII) { s =>
+            ZTransducer.usASCIIDecode.push.use { push =>
+              for {
+                part1 <- push(Some(Chunk.fromArray(s.getBytes(StandardCharsets.US_ASCII))))
                 part2 <- push(None)
               } yield assert((part1 ++ part2).mkString)(equalTo(s))
             }
