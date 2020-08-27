@@ -1,9 +1,9 @@
 package zio
 
 import scala.concurrent.Future
-
 import zio.clock.Clock
 import zio.duration._
+import zio.stream.ZStream
 import zio.test.Assertion._
 import zio.test.TestAspect.timeout
 import zio.test.environment.{ TestClock, TestRandom }
@@ -100,7 +100,7 @@ object ScheduleSpec extends ZIOBaseSpec {
       val n = 42
       for {
         ref <- Ref.make(0)
-        io  = ref.update(_ + 1).repeat(Schedule.recurs(n))
+        io   = ref.update(_ + 1).repeat(Schedule.recurs(n))
         _   <- io.repeat(Schedule.recurs(1))
         res <- ref.get
       } yield assert(res)(equalTo((n + 1) * 2))
@@ -128,6 +128,11 @@ object ScheduleSpec extends ZIOBaseSpec {
         val scheduled = clock.currentDateTime.orDie.flatMap(schedule.run(_, 1 to 10))
         val expected  = Chunk((0L, 1.minute), (1L, 2.minute), (2L, 4.minute))
         assertM(scheduled)(equalTo(expected))
+      },
+      testM("free from stack overflow") {
+        assertM(ZStream.fromSchedule(Schedule.forever *> Schedule.recurs(1000000)).runCount)(
+          equalTo(1000000L)
+        )
       }
     ),
     suite("Retry on failure according to a provided strategy")(
@@ -214,6 +219,11 @@ object ScheduleSpec extends ZIOBaseSpec {
           equalTo(Chunk(0, 1, 2, 3, 4).map(i => (i * 100).millis))
         )
       },
+      testM("fixed delay with zero delay") {
+        assertM(run(Schedule.fixed(Duration.Zero) >>> Schedule.elapsed)(List.fill(5)(())))(
+          equalTo(Chunk.fill(5)(Duration.Zero))
+        )
+      },
       testM("windowed") {
         assertM(run(Schedule.windowed(100.millis) >>> Schedule.elapsed)(List.fill(5)(())))(
           equalTo(Chunk(0, 1, 2, 3, 4).map(i => (i * 100).millis))
@@ -271,8 +281,8 @@ object ScheduleSpec extends ZIOBaseSpec {
       },
       testM("if fallback succeed - retryOrElseEither") {
         for {
-          ref      <- Ref.make(0)
-          o        <- alwaysFail(ref).retryOrElseEither(Schedule.once, ioSucceed)
+          ref     <- Ref.make(0)
+          o       <- alwaysFail(ref).retryOrElseEither(Schedule.once, ioSucceed)
           expected = Left("OrElse")
         } yield assert(o)(equalTo(expected))
       },
@@ -297,8 +307,8 @@ object ScheduleSpec extends ZIOBaseSpec {
       },
       testM("retry exactly one time for `once` when second time succeeds - retryOrElse0") {
         for {
-          ref      <- Ref.make(0)
-          o        <- failOn0(ref).retryOrElseEither(Schedule.once, ioFail)
+          ref     <- Ref.make(0)
+          o       <- failOn0(ref).retryOrElseEither(Schedule.once, ioFail)
           expected = Right(2)
         } yield assert(o)(equalTo(expected))
       }
@@ -379,6 +389,12 @@ object ScheduleSpec extends ZIOBaseSpec {
           retries        <- retriesCounter.get
         } yield retries
       }(equalTo(10))
+    },
+    testM("union of two schedules should continue as long as either wants to continue") {
+      val schedule = Schedule.recurWhile[Boolean](_ == true) || Schedule.fixed(1.second)
+      assertM(run(schedule >>> Schedule.elapsed)(List(true, false, false, false, false)))(
+        equalTo(Chunk(0, 0, 1, 2, 3).map(_.seconds))
+      )
     }
   )
 

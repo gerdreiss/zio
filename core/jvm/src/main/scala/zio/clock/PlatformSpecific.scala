@@ -32,15 +32,15 @@ private[clock] trait PlatformSpecific {
 
     override def schedule(task: Runnable, duration: Duration): CancelToken = duration match {
       case Duration.Infinity => ConstFalse
-      case Duration.Zero =>
-        task.run()
-
-        ConstFalse
       case Duration.Finite(_) =>
-        val future = service.schedule(new Runnable {
-          def run: Unit =
-            task.run()
-        }, duration.toNanos, TimeUnit.NANOSECONDS)
+        val future = service.schedule(
+          new Runnable {
+            def run: Unit =
+              task.run()
+          },
+          duration.toNanos,
+          TimeUnit.NANOSECONDS
+        )
 
         () => {
           val canceled = future.cancel(true)

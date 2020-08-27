@@ -57,7 +57,7 @@ sealed abstract class Schedule[-Env, -In, +Out] private (
    * by both schedules.
    */
   def &&[Env1 <: Env, In1 <: In, Out2](that: Schedule[Env1, In1, Out2]): Schedule[Env1, In1, (Out, Out2)] =
-    (self combineWith that)((l, r) => Schedule.maxOffsetDateTime(l, r))
+    (self intersectWith that)((l, r) => Schedule.maxOffsetDateTime(l, r))
 
   /**
    * Returns a new schedule that has both the inputs and outputs of this and the specified
@@ -179,7 +179,7 @@ sealed abstract class Schedule[-Env, -In, +Out] private (
    * by both schedules.
    */
   def ||[Env1 <: Env, In1 <: In, Out2](that: Schedule[Env1, In1, Out2]): Schedule[Env1, In1, (Out, Out2)] =
-    (self combineWith that)((l, r) => Schedule.minOffsetDateTime(l, r))
+    (self unionWith that)((l, r) => Schedule.minOffsetDateTime(l, r))
 
   /**
    * Returns a new schedule that chooses between two schedules with a common output.
@@ -277,29 +277,11 @@ sealed abstract class Schedule[-Env, -In, +Out] private (
    * Returns a new schedule that combines this schedule with the specified schedule, merging the next
    * intervals according to the specified merge function.
    */
+  @deprecated("use intersectWith", "2.0.0")
   def combineWith[Env1 <: Env, In1 <: In, Out2](
     that: Schedule[Env1, In1, Out2]
-  )(f: (Interval, Interval) => Interval): Schedule[Env1, In1, (Out, Out2)] = {
-    def loop(
-      self: StepFunction[Env, In1, Out],
-      that: StepFunction[Env1, In1, Out2]
-    ): StepFunction[Env1, In1, (Out, Out2)] = { (now: OffsetDateTime, in: In1) =>
-      val left  = self(now, in)
-      val right = that(now, in)
-
-      (left zip right).map {
-        case (Done(l), Done(r))           => Done(l -> r)
-        case (Done(l), Continue(r, _, _)) => Done(l -> r)
-        case (Continue(l, _, _), Done(r)) => Done(l -> r)
-        case (Continue(l, linterval, lnext), Continue(r, rinterval, rnext)) =>
-          val combined = f(linterval, rinterval)
-
-          Continue(l -> r, combined, loop(lnext, rnext))
-      }
-    }
-
-    Schedule(loop(self.step, that.step))
-  }
+  )(f: (Interval, Interval) => Interval): Schedule[Env1, In1, (Out, Out2)] =
+    intersectWith(that)(f)
 
   /**
    * Returns a new schedule that deals with a narrower class of inputs than this schedule.
@@ -337,10 +319,10 @@ sealed abstract class Schedule[-Env, -In, +Out] private (
           now  <- clock.currentDateTime.orDie
           dec  <- step(now, in)
           v <- dec match {
-                case Done(out) => ref.set((Some(out), StepFunction.done(out))) *> ZIO.fail(None)
-                case Continue(out, interval, next) =>
-                  ref.set((Some(out), next)) *> ZIO.sleep(Duration.fromInterval(now, interval)) as out
-              }
+                 case Done(out) => ref.set((Some(out), StepFunction.done(out))) *> ZIO.fail(None)
+                 case Continue(out, interval, next) =>
+                   ref.set((Some(out), next)) *> ZIO.sleep(Duration.fromInterval(now, interval)) as out
+               }
         } yield v
 
       val last = ref.get.flatMap {
@@ -423,7 +405,36 @@ sealed abstract class Schedule[-Env, -In, +Out] private (
           case Continue(out, interval, next) => ZIO.succeed(Continue(out, interval, loop(next)))
         }
 
-    Schedule(self.step)
+    Schedule(loop(self.step))
+  }
+
+  /**
+   * Returns a new schedule that combines this schedule with the specified
+   * schedule, continuing as long as both schedules want to continue and
+   * merging the next intervals according to the specified merge function.
+   */
+  def intersectWith[Env1 <: Env, In1 <: In, Out2](
+    that: Schedule[Env1, In1, Out2]
+  )(f: (Interval, Interval) => Interval): Schedule[Env1, In1, (Out, Out2)] = {
+    def loop(
+      self: StepFunction[Env, In1, Out],
+      that: StepFunction[Env1, In1, Out2]
+    ): StepFunction[Env1, In1, (Out, Out2)] = { (now: OffsetDateTime, in: In1) =>
+      val left  = self(now, in)
+      val right = that(now, in)
+
+      (left zip right).map {
+        case (Done(l), Done(r))           => Done(l -> r)
+        case (Done(l), Continue(r, _, _)) => Done(l -> r)
+        case (Continue(l, _, _), Done(r)) => Done(l -> r)
+        case (Continue(l, linterval, lnext), Continue(r, rinterval, rnext)) =>
+          val combined = f(linterval, rinterval)
+
+          Continue(l -> r, combined, loop(lnext, rnext))
+      }
+    }
+
+    Schedule(loop(self.step, that.step))
   }
 
   /**
@@ -669,6 +680,37 @@ sealed abstract class Schedule[-Env, -In, +Out] private (
   }
 
   /**
+   * Returns a new schedule that combines this schedule with the specified
+   * schedule, continuing as long as either schedule wants to continue and
+   * merging the next intervals according to the specified merge function.
+   */
+  def unionWith[Env1 <: Env, In1 <: In, Out2](
+    that: Schedule[Env1, In1, Out2]
+  )(f: (Interval, Interval) => Interval): Schedule[Env1, In1, (Out, Out2)] = {
+    def loop(
+      self: StepFunction[Env, In1, Out],
+      that: StepFunction[Env1, In1, Out2]
+    ): StepFunction[Env1, In1, (Out, Out2)] = { (now: OffsetDateTime, in: In1) =>
+      val left  = self(now, in)
+      val right = that(now, in)
+
+      (left zip right).map {
+        case (Done(l), Done(r)) => Done(l -> r)
+        case (Done(l), Continue(r, rinterval, rnext)) =>
+          Continue(l -> r, rinterval, loop(StepFunction.done(l), rnext))
+        case (Continue(l, linterval, lnext), Done(r)) =>
+          Continue(l -> r, linterval, loop(lnext, StepFunction.done(r)))
+        case (Continue(l, linterval, lnext), Continue(r, rinterval, rnext)) =>
+          val combined = f(linterval, rinterval)
+
+          Continue(l -> r, combined, loop(lnext, rnext))
+      }
+    }
+
+    Schedule(loop(self.step, that.step))
+  }
+
+  /**
    * Returns a new schedule that maps the output of this schedule to unit.
    */
   def unit: Schedule[Env, In, Unit] = self.as(())
@@ -837,7 +879,7 @@ object Schedule {
   /**
    * A schedule that recurs for until the input value becomes applicable to partial function
    * and then map that value with given function.
-   * */
+   */
   def recurUntil[A, B](pf: PartialFunction[A, B]): Schedule[Any, A, Option[B]] =
     identity[A].map(pf.lift(_)).untilOutput(_.isDefined)
 
@@ -919,8 +961,8 @@ object Schedule {
           case Some(State(startMillis, lastRun)) =>
             val nowMillis     = now.toInstant.toEpochMilli()
             val runningBehind = nowMillis > (lastRun + fixedDelay)
-            val boundary      = Duration.ofMillis((nowMillis - startMillis) % fixedDelay)
-            val sleepTime     = if (boundary.isZero()) fixedDelayD else boundary
+            val boundary      = if (interval.isZero) interval else Duration.ofMillis((nowMillis - startMillis) % fixedDelay)
+            val sleepTime     = if (boundary.isZero) fixedDelayD else boundary
             val nextRun       = if (runningBehind) now else now.plus(sleepTime)
 
             Continue(
@@ -1037,10 +1079,10 @@ object Schedule {
    * Unfolds a schedule that repeats one time from the specified state and iterator.
    */
   def unfold[A](a: => A)(f: A => A): Schedule[Any, Any, A] = {
-    def loop(a: => A): StepFunction[Any, Any, A] =
+    def loop(a: A): StepFunction[Any, Any, A] =
       (now, _) => ZIO.succeed(Decision.Continue(a, now, loop(f(a))))
 
-    Schedule(loop(a))
+    Schedule((now, _) => ZIO.effectTotal(a).map(a => Decision.Continue(a, now, loop(f(a)))))
   }
 
   /**
