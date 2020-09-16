@@ -342,15 +342,15 @@ lazy val benchmarks = project.module
       Seq(
         "co.fs2"                    %% "fs2-core"       % "2.4.4",
         "com.google.code.findbugs"   % "jsr305"         % "3.0.2",
-        "com.twitter"               %% "util-core"      % "20.8.0",
-        "com.typesafe.akka"         %% "akka-stream"    % "2.6.8",
+        "com.twitter"               %% "util-core"      % "20.8.1",
+        "com.typesafe.akka"         %% "akka-stream"    % "2.6.9",
         "io.monix"                  %% "monix"          % "3.2.2",
-        "io.projectreactor"          % "reactor-core"   % "3.3.9.RELEASE",
+        "io.projectreactor"          % "reactor-core"   % "3.3.10.RELEASE",
         "io.reactivex.rxjava2"       % "rxjava"         % "2.2.19",
         "org.ow2.asm"                % "asm"            % "8.0.1",
         "org.scala-lang"             % "scala-compiler" % scalaVersion.value % Provided,
         "org.scala-lang"             % "scala-reflect"  % scalaVersion.value,
-        "org.typelevel"             %% "cats-effect"    % "2.1.4",
+        "org.typelevel"             %% "cats-effect"    % "2.2.0",
         "org.scalacheck"            %% "scalacheck"     % "1.14.3",
         "hedgehog"                  %% "hedgehog-core"  % "0.1.0",
         "com.github.japgolly.nyaya" %% "nyaya-gen"      % "0.9.2"
@@ -399,7 +399,7 @@ lazy val docs = project.module
       "dev.zio"            %% "zio-interop-scalaz7x"        % "7.2.27.0-RC9",
       "dev.zio"            %% "zio-interop-java"            % "1.1.0.0-RC6",
       "dev.zio"            %% "zio-interop-reactivestreams" % "1.0.3.5",
-      "dev.zio"            %% "zio-interop-twitter"         % "20.8.0.0"
+      "dev.zio"            %% "zio-interop-twitter"         % "20.8.1.0"
     )
   )
   .settings(macroExpansionSettings)
