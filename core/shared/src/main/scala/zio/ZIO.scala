@@ -1666,6 +1666,27 @@ sealed trait ZIO[-R, +E, +A] extends Serializable with ZIOPlatformSpecific[R, E,
   final def sandbox: ZIO[R, Cause[E], A] = foldCauseM(ZIO.fail(_), ZIO.succeedNow)
 
   /**
+   * Runs this effect according to the specified schedule.
+   *
+   * See [[scheduleFrom]] for a variant that allows the schedule's decision to
+   * depend on the rsult of this effect.
+   */
+  final def schedule[R1 <: R, B](schedule: Schedule[R1, Any, B]): ZIO[R1 with Clock, E, B] =
+    scheduleFrom(())(schedule)
+
+  /**
+   * Runs this effect according to the specified schedule starting from the
+   * specified input value.
+   */
+  final def scheduleFrom[R1 <: R, A1 >: A, B](a: A1)(schedule: Schedule[R1, A1, B]): ZIO[R1 with Clock, E, B] =
+    schedule.driver.flatMap { driver =>
+      def loop(a: A1): ZIO[R1 with Clock, E, B] =
+        driver.next(a).foldM(_ => driver.last.orDie, _ => self.flatMap(loop))
+
+      loop(a)
+    }
+
+  /**
    * Converts an option on values into an option on errors.
    */
   final def some[B](implicit ev: A <:< Option[B]): ZIO[R, Option[E], B] =
@@ -2298,6 +2319,13 @@ object ZIO extends ZIOCompanionPlatformSpecific {
    * Evaluate each effect in the structure from left to right, and collect the
    * results. For a parallel version, see `collectAllPar`.
    */
+  def collectAll[R, E, A: ClassTag](in: Array[ZIO[R, E, A]]): ZIO[R, E, Array[A]] =
+    foreach(in)(ZIO.identityFn)
+
+  /**
+   * Evaluate each effect in the structure from left to right, and collect the
+   * results. For a parallel version, see `collectAllPar`.
+   */
   def collectAll[R, E, A](in: NonEmptyChunk[ZIO[R, E, A]]): ZIO[R, E, NonEmptyChunk[A]] =
     foreach(in)(ZIO.identityFn)
 
@@ -2322,6 +2350,13 @@ object ZIO extends ZIOCompanionPlatformSpecific {
    * results. For a sequential version, see `collectAll`.
    */
   def collectAllPar[R, E, A](as: Set[ZIO[R, E, A]]): ZIO[R, E, Set[A]] =
+    foreachPar(as)(ZIO.identityFn)
+
+  /**
+   * Evaluate each effect in the structure in parallel, and collect the
+   * results. For a sequential version, see `collectAll`.
+   */
+  def collectAllPar[R, E, A: ClassTag](as: Array[ZIO[R, E, A]]): ZIO[R, E, Array[A]] =
     foreachPar(as)(ZIO.identityFn)
 
   /**
@@ -2784,6 +2819,16 @@ object ZIO extends ZIOCompanionPlatformSpecific {
     foreach[R, E, A, B, Iterable](in)(f).map(_.toSet)
 
   /**
+   * Applies the function `f` to each element of the `Array[A]` and
+   * returns the results in a new `Array[B]`.
+   *
+   * For a parallel version of this method, see `foreachPar`.
+   * If you do not need the results, see `foreach_` for a more efficient implementation.
+   */
+  final def foreach[R, E, A, B: ClassTag](in: Array[A])(f: A => ZIO[R, E, B]): ZIO[R, E, Array[B]] =
+    foreach[R, E, A, B, Iterable](in)(f).map(_.toArray)
+
+  /**
    * Applies the function `f` to each element of the `Map[Key, Value]` and
    * returns the results in a new `Map[Key2, Value2]`.
    *
@@ -2868,6 +2913,15 @@ object ZIO extends ZIOCompanionPlatformSpecific {
    */
   final def foreachPar[R, E, A, B](as: Set[A])(fn: A => ZIO[R, E, B]): ZIO[R, E, Set[B]] =
     foreachPar[R, E, A, B, Iterable](as)(fn).map(_.toSet)
+
+  /**
+   * Applies the function `f` to each element of the `Array[A]` in parallel,
+   * and returns the results in a new `Array[B]`.
+   *
+   * For a sequential version of this method, see `foreach`.
+   */
+  final def foreachPar[R, E, A, B: ClassTag](as: Array[A])(f: A => ZIO[R, E, B]): ZIO[R, E, Array[B]] =
+    foreachPar[R, E, A, B, Iterable](as)(f).map(_.toArray)
 
   /**
    * Applies the function `f` to each element of the `Map[Key, Value]` in
@@ -3000,13 +3054,24 @@ object ZIO extends ZIOCompanionPlatformSpecific {
    *
    * Unlike `foreachPar_`, this method will use at most up to `n` fibers.
    */
-  def foreachParN_[R, E, A](
-    n: Int
-  )(as: Iterable[A])(f: A => ZIO[R, E, Any]): ZIO[R, E, Unit] =
-    Semaphore
-      .make(n.toLong)
-      .flatMap(semaphore => ZIO.foreachPar_(as)(a => semaphore.withPermit(f(a))))
+  def foreachParN_[R, E, A](n: Int)(as: Iterable[A])(f: A => ZIO[R, E, Any]): ZIO[R, E, Unit] = {
+    def worker(q: Queue[A], ref: Ref[Int]): ZIO[R, E, Unit] =
+      ZIO.whenM(ref.modify(n => (n > 0, n - 1))) {
+        q.take.flatMap(f) *> worker(q, ref)
+      }
+
+    Queue
+      .bounded[A](n.toInt)
+      .bracket(_.shutdown) { q =>
+        for {
+          ref    <- Ref.make(as.size)
+          _      <- ZIO.foreach_(as)(q.offer).fork
+          fibers <- ZIO.collectAll(List.fill(n.toInt)(worker(q, ref).fork))
+          _      <- ZIO.foreach_(fibers)(_.await)
+        } yield ()
+      }
       .refailWithTrace
+  }
 
   /**
    * Returns an effect that forks all of the specified values, and returns a
@@ -3801,9 +3866,9 @@ object ZIO extends ZIOCompanionPlatformSpecific {
   def validate[R, E, A, B, Collection[+Element] <: Iterable[Element]](in: Collection[A])(
     f: A => ZIO[R, E, B]
   )(implicit bf: BuildFrom[Collection[A], B, Collection[B]], ev: CanFail[E]): ZIO[R, ::[E], Collection[B]] =
-    partition(in)(f).flatMap {
-      case (e :: es, _) => ZIO.fail(::(e, es))
-      case (_, bs)      => ZIO.succeedNow(bf.fromSpecific(in)(bs))
+    partition(in)(f).flatMap { case (es, bs) =>
+      if (es.isEmpty) ZIO.succeedNow(bf.fromSpecific(in)(bs))
+      else ZIO.fail(::(es.head, es.tail.toList))
     }
 
   /**
@@ -3816,9 +3881,9 @@ object ZIO extends ZIOCompanionPlatformSpecific {
   def validatePar[R, E, A, B, Collection[+Element] <: Iterable[Element]](in: Collection[A])(
     f: A => ZIO[R, E, B]
   )(implicit bf: BuildFrom[Collection[A], B, Collection[B]], ev: CanFail[E]): ZIO[R, ::[E], Collection[B]] =
-    partitionPar(in)(f).flatMap {
-      case (e :: es, _) => ZIO.fail(::(e, es))
-      case (_, bs)      => ZIO.succeedNow(bf.fromSpecific(in)(bs))
+    partitionPar(in)(f).flatMap { case (es, bs) =>
+      if (es.isEmpty) ZIO.succeedNow(bf.fromSpecific(in)(bs))
+      else ZIO.fail(::(es.head, es.tail.toList))
     }
 
   /**
