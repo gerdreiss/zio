@@ -28,7 +28,7 @@ inThisBuild(
 
 addCommandAlias("build", "; prepare; testJVM")
 addCommandAlias("prepare", "; fix; fmt")
-addCommandAlias("fix", "all compile:scalafix test:scalafix")
+addCommandAlias("fix", "all compile:scalafix test:scalafix; all scalafmtSbt scalafmtAll")
 addCommandAlias(
   "fixCheck",
   "; compile:scalafix --check ; test:scalafix --check"
@@ -53,7 +53,7 @@ addCommandAlias(
 )
 addCommandAlias(
   "testJVMDotty",
-  ";coreTestsJVM/test;stacktracerJVM/test:compile;streamsTestsJVM/test;testTestsJVM/test;testRunnerJVM/test:run;examplesJVM/test:compile"
+  ";coreTestsJVM/test;stacktracerJVM/test:compile;streamsTestsJVM/test;testTestsJVM/test;testMagnoliaTestsJVM/test;testRunnerJVM/test:run;examplesJVM/test:compile"
 )
 addCommandAlias(
   "testJVM211",
@@ -269,13 +269,26 @@ lazy val testMagnolia = crossProject(JVMPlatform, JSPlatform)
   .settings(crossProjectSettings)
   .settings(macroDefinitionSettings)
   .settings(
-    crossScalaVersions --= Seq(Scala211, ScalaDotty),
-    scalacOptions += "-language:experimental.macros",
-    libraryDependencies += ("com.propensive" %%% "magnolia" % "0.17.0").exclude("org.scala-lang", "scala-compiler")
+    crossScalaVersions --= Seq(Scala211),
+    scalacOptions ++= {
+      if (isDotty.value) {
+        Seq.empty
+      } else {
+        Seq("-language:experimental.macros")
+      }
+    },
+    libraryDependencies ++= {
+      if (isDotty.value) {
+        Seq.empty
+      } else {
+        Seq(("com.propensive" %%% "magnolia" % "0.17.0").exclude("org.scala-lang", "scala-compiler"))
+      }
+    }
   )
 
 lazy val testMagnoliaJVM = testMagnolia.jvm
-lazy val testMagnoliaJS  = testMagnolia.js
+  .settings(dottySettings)
+lazy val testMagnoliaJS = testMagnolia.js
 
 lazy val testMagnoliaTests = crossProject(JVMPlatform, JSPlatform)
   .in(file("test-magnolia-tests"))
@@ -290,7 +303,8 @@ lazy val testMagnoliaTests = crossProject(JVMPlatform, JSPlatform)
   .enablePlugins(BuildInfoPlugin)
 
 lazy val testMagnoliaTestsJVM = testMagnoliaTests.jvm
-lazy val testMagnoliaTestsJS  = testMagnoliaTests.js.settings(jsSettings)
+  .settings(dottySettings)
+lazy val testMagnoliaTestsJS = testMagnoliaTests.js.settings(jsSettings)
 
 lazy val stacktracer = crossProject(JSPlatform, JVMPlatform, NativePlatform)
   .in(file("stacktracer"))
@@ -412,7 +426,7 @@ lazy val benchmarks = project.module
         "org.scala-lang"             % "scala-compiler" % scalaVersion.value % Provided,
         "org.scala-lang"             % "scala-reflect"  % scalaVersion.value,
         "org.typelevel"             %% "cats-effect"    % "2.3.0",
-        "org.scalacheck"            %% "scalacheck"     % "1.15.1",
+        "org.scalacheck"            %% "scalacheck"     % "1.15.2",
         "qa.hedgehog"               %% "hedgehog-core"  % "0.5.1",
         "com.github.japgolly.nyaya" %% "nyaya-gen"      % "0.9.2"
       ),
