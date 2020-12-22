@@ -415,7 +415,7 @@ lazy val benchmarks = project.module
     skip in publish := true,
     libraryDependencies ++=
       Seq(
-        "co.fs2"                    %% "fs2-core"       % "2.4.6",
+        "co.fs2"                    %% "fs2-core"       % "2.5.0",
         "com.google.code.findbugs"   % "jsr305"         % "3.0.2",
         "com.twitter"               %% "util-core"      % "20.10.0",
         "com.typesafe.akka"         %% "akka-stream"    % "2.6.10",
@@ -425,7 +425,7 @@ lazy val benchmarks = project.module
         "org.ow2.asm"                % "asm"            % "9.0",
         "org.scala-lang"             % "scala-compiler" % scalaVersion.value % Provided,
         "org.scala-lang"             % "scala-reflect"  % scalaVersion.value,
-        "org.typelevel"             %% "cats-effect"    % "2.3.0",
+        "org.typelevel"             %% "cats-effect"    % "2.3.1",
         "org.scalacheck"            %% "scalacheck"     % "1.15.2",
         "qa.hedgehog"               %% "hedgehog-core"  % "0.5.1",
         "com.github.japgolly.nyaya" %% "nyaya-gen"      % "0.9.2"
