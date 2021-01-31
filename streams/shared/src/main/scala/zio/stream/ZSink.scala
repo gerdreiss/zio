@@ -816,6 +816,19 @@ object ZSink extends ZSinkPlatformSpecificConstructors {
     ZSink(Managed.succeed(sink))
 
   /**
+   * Create a sink which enqueues each element into the specified queue.
+   */
+  def fromQueue[R, E, I](queue: ZQueue[R, Nothing, E, Any, I, Any]): ZSink[R, E, I, Nothing, Unit] =
+    foreachChunk(queue.offerAll)
+
+  /**
+   * Create a sink which enqueues each element into the specified queue.
+   * The queue will be shutdown once the stream is closed.
+   */
+  def fromQueueWithShutdown[R, E, I](queue: ZQueue[R, Nothing, E, Any, I, Any]): ZSink[R, E, I, Nothing, Unit] =
+    ZSink(ZManaged.make(ZIO.succeedNow(queue))(_.shutdown).map(fromQueue[R, E, I]).flatMap(_.push))
+
+  /**
    * Creates a sink halting with a specified cause.
    */
   def halt[E](e: => Cause[E]): ZSink[Any, E, Any, Nothing, Nothing] =

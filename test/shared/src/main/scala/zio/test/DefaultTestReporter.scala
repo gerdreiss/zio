@@ -42,15 +42,17 @@ object DefaultTestReporter {
       depth: Int,
       ancestors: List[TestAnnotationMap]
     ): Seq[RenderedResult[String]] =
-      executedSpec.caseValue match {
+      (executedSpec.caseValue: @unchecked) match {
         case ExecutedSpec.SuiteCase(label, specs) =>
           val hasFailures = executedSpec.exists {
             case ExecutedSpec.TestCase(_, test, _) => test.isLeft
             case _                                 => false
           }
-          val annotations = executedSpec.fold[TestAnnotationMap] {
-            case ExecutedSpec.SuiteCase(_, annotations)   => annotations.foldLeft(TestAnnotationMap.empty)(_ ++ _)
-            case ExecutedSpec.TestCase(_, _, annotations) => annotations
+          val annotations = executedSpec.fold[TestAnnotationMap] { es =>
+            (es: @unchecked) match {
+              case ExecutedSpec.SuiteCase(_, annotations)   => annotations.foldLeft(TestAnnotationMap.empty)(_ ++ _)
+              case ExecutedSpec.TestCase(_, _, annotations) => annotations
+            }
           }
           val status = if (hasFailures) Failed else Passed
           val renderedLabel =
@@ -95,17 +97,19 @@ object DefaultTestReporter {
   }
 
   private def logStats[E](duration: Duration, executedSpec: ExecutedSpec[E]): String = {
-    val (success, ignore, failure) = executedSpec.fold[(Int, Int, Int)] {
-      case ExecutedSpec.SuiteCase(_, stats) =>
-        stats.foldLeft((0, 0, 0)) { case ((x1, x2, x3), (y1, y2, y3)) =>
-          (x1 + y1, x2 + y2, x3 + y3)
-        }
-      case ExecutedSpec.TestCase(_, result, _) =>
-        result match {
-          case Left(_)                         => (0, 0, 1)
-          case Right(TestSuccess.Succeeded(_)) => (1, 0, 0)
-          case Right(TestSuccess.Ignored)      => (0, 1, 0)
-        }
+    val (success, ignore, failure) = executedSpec.fold[(Int, Int, Int)] { es =>
+      (es: @unchecked) match {
+        case ExecutedSpec.SuiteCase(_, stats) =>
+          stats.foldLeft((0, 0, 0)) { case ((x1, x2, x3), (y1, y2, y3)) =>
+            (x1 + y1, x2 + y2, x3 + y3)
+          }
+        case ExecutedSpec.TestCase(_, result, _) =>
+          result match {
+            case Left(_)                         => (0, 0, 1)
+            case Right(TestSuccess.Succeeded(_)) => (1, 0, 0)
+            case Right(TestSuccess.Ignored)      => (0, 1, 0)
+          }
+      }
     }
     val total = success + ignore + failure
     cyan(
@@ -262,7 +266,11 @@ object FailureRenderer {
         case _ =>
           rendered
       }
-    renderFragment(failureDetails.head, offset).toMessage ++ loop(failureDetails, Message.empty)
+
+    renderFragment(failureDetails.head, offset).toMessage ++ loop(
+      failureDetails,
+      Message.empty
+    ) ++ renderAssertionLocation(failureDetails.last, offset)
   }
 
   private def renderGenFailureDetails[A](failureDetails: Option[GenFailureDetails], offset: Int): Message =
@@ -286,17 +294,38 @@ object FailureRenderer {
 
   private def renderWhole(fragment: AssertionValue, whole: AssertionValue, offset: Int): Line =
     withOffset(offset + tabSize) {
-      blue(whole.value.toString) +
+      blue(renderValue(whole)) +
         renderSatisfied(whole) ++
         highlight(cyan(whole.printAssertion), fragment.printAssertion)
     }
 
   private def renderFragment(fragment: AssertionValue, offset: Int): Line =
     withOffset(offset + tabSize) {
-      blue(fragment.value.toString) +
+      blue(renderValue(fragment)) +
         renderSatisfied(fragment) +
         cyan(fragment.printAssertion)
     }
+
+  private def renderValue(av: AssertionValue) = (av.value, av.expression) match {
+    case (v, Some(expression)) if !expressionRedundant(v.toString, expression) => s"`$expression` = $v"
+    case (v, _)                                                                => v.toString
+  }
+
+  private def expressionRedundant(valueStr: String, expression: String) = {
+    // toString drops double quotes, and for tuples and collections doesn't include spaces after the comma
+    def strip(s: String) = s
+      .replace("\"", "")
+      .replace(" ", "")
+      .replace("\n", "")
+      .replace("\\n", "")
+    strip(valueStr) == strip(expression)
+  }
+
+  private def renderAssertionLocation(av: AssertionValue, offset: Int) = av.sourceLocation.fold(Message()) { location =>
+    blue(s"at $location").toLine
+      .withOffset(offset + 2 * tabSize)
+      .toMessage
+  }
 
   private def highlight(fragment: Fragment, substring: String, colorCode: String = AnsiColor.YELLOW): Line = {
     val parts = fragment.text.split(Pattern.quote(substring))

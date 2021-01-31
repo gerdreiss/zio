@@ -3,7 +3,7 @@ package zio.stream
 import zio.duration._
 import zio.stream.SinkUtils.{findSink, sinkRaceLaw}
 import zio.stream.ZStreamGen._
-import zio.test.Assertion.{equalTo, isFalse, isGreaterThanEqualTo, isTrue, succeeds}
+import zio.test.Assertion.{equalTo, isFalse, isGreaterThanEqualTo, isLeft, isTrue, isUnit, succeeds}
 import zio.test.environment.TestClock
 import zio.test.{assertM, _}
 import zio.{ZIOBaseSpec, _}
@@ -175,11 +175,72 @@ object ZSinkSpec extends ZIOBaseSpec {
           )
         }
       ),
+      suite("fromQueue")(
+        testM("enqueues all elements") {
+          checkM(pureStreamOfInts) { stream =>
+            for {
+              queue                    <- ZQueue.unbounded[Int]
+              (result, streamElements) <- stream.run(ZSink.fromQueue(queue) <&> ZSink.collectAll.map(_.toList))
+              queueElements            <- queue.takeAll
+            } yield assert(result)(isUnit) && assert(queueElements)(equalTo(streamElements))
+          }
+        },
+        testM("fails if offering to the queue fails") {
+          for {
+            queue       <- ZQueue.unbounded[Int]
+            exception    = new Exception
+            failingQueue = queue.contramapM[Any, Exception, Int](_ => ZIO.fail(exception))
+            queueSink    = ZSink.fromQueue(failingQueue)
+            stream       = Stream(1)
+            result      <- stream.run(queueSink).either
+          } yield assert(result)(isLeft(equalTo(exception)))
+        }
+      ),
       suite("succeed")(
         testM("handles leftovers") {
           assertM(ZStream(1, 2, 3).run(ZSink.succeed[Int, String]("ok").exposeLeftover))(
             equalTo(("ok", Chunk(1, 2, 3)))
           )
+        }
+      ),
+      suite("fromQueueWithShutdown")(
+        testM("enqueues all elements and shuts down the queue when the stream completes") {
+          checkM(Gen.listOfBounded(1, 5)(Gen.anyInt)) { elements =>
+            for {
+              sourceQueue         <- ZQueue.unbounded[Int]
+              targetQueue         <- ZQueue.unbounded[Int]
+              stream               = ZStream.fromQueue(sourceQueue)
+              streamCompleted     <- Promise.make[Nothing, Unit]
+              _                   <- stream.run(ZSink.fromQueueWithShutdown(targetQueue)).flatMap(streamCompleted.succeed).fork
+              _                   <- sourceQueue.offerAll(elements)
+              queueElements       <- targetQueue.takeBetween(elements.size, elements.size)
+              _                   <- sourceQueue.shutdown
+              _                   <- streamCompleted.await
+              targetQueueShutdown <- targetQueue.isShutdown
+            } yield assert(queueElements)(equalTo(elements)) &&
+              assert(targetQueueShutdown)(isTrue)
+          }
+        },
+        testM("fails if offering to the queue fails") {
+          for {
+            queue       <- ZQueue.unbounded[Int]
+            exception    = new Exception
+            failingQueue = queue.contramapM[Any, Exception, Int](_ => ZIO.fail(exception))
+            queueSink    = ZSink.fromQueueWithShutdown(failingQueue)
+            stream       = Stream(1)
+            result      <- stream.run(queueSink).either
+          } yield assert(result)(isLeft(equalTo(exception)))
+        },
+        testM("shuts down the queue if the stream fails") {
+          for {
+            queue      <- ZQueue.unbounded[Int]
+            exception   = new Exception
+            queueSink   = ZSink.fromQueueWithShutdown(queue)
+            stream      = Stream.fail(exception)
+            result     <- stream.run(queueSink).either
+            isShutdown <- queue.isShutdown
+          } yield assert(result)(isLeft(equalTo(exception))) &&
+            assert(isShutdown)(isTrue)
         }
       )
     ),

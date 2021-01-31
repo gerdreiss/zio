@@ -16,7 +16,9 @@
 
 package zio
 
-import scala.collection.mutable.{ ArrayBuilder, Builder }
+import zio.Chunk.BitChunk
+
+import scala.collection.mutable.{ArrayBuilder, Builder}
 import scala.{
   Boolean => SBoolean,
   Byte => SByte,
@@ -27,8 +29,6 @@ import scala.{
   Long => SLong,
   Short => SShort
 }
-
-import zio.Chunk.BitChunk
 
 /**
  * A `ChunkBuilder[A]` can build a `Chunk[A]` given elements of type `A`.
