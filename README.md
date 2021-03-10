@@ -48,7 +48,10 @@ Want to see your company here? [Submit a PR](https://github.com/zio/zio/edit/mas
 * [auto.ru](https://auto.ru)
 * [AutoScout24](https://www.autoscout24.de)
 * [Avast](https://www.avast.com)
+* [CalcBank](https://www.calcbank.com.br)
 * [Call Handling](https://www.callhandling.co.uk/)
+* [Carvana](https://www.carvana.com)
+* [Cloudfarms](https://cloudfarms.com)
 * [CodeComprehension](https://codecomprehension.com)
 * [Codept](https://www.codept.de/)
 * [Colisweb](https://www.colisweb.com/en)
@@ -64,6 +67,7 @@ Want to see your company here? [Submit a PR](https://github.com/zio/zio/edit/mas
 * [DHL Parcel The Netherlands](https://www.werkenbijdhl.nl/it)
 * [Doomoolmori](https://doomoolmori.com/)
 * [Dream11](https://dream11.com)
+* [Deutsche Telekom IoT GmbH](https://iot.telekom.com/en)
 * [EnelX](https://www.enelx.com)
 * [Evolution](https://evolution.engineering)
 * [Flipp](https://flipp.com/)
@@ -94,6 +98,7 @@ Want to see your company here? [Submit a PR](https://github.com/zio/zio/edit/mas
 * [Rocker](https://rocker.com/)
 * [Rudder](https://www.rudder.io/)
 * [SecurityScorecard](https://www.securityscorecard.io/)
+* [SentinelOne](https://www.sentinelone.com/)
 * [Signicat](https://www.signicat.com/)
 * [SoftwareMill](https://softwaremill.com/)
 * [StreamWeaver](https://www.streamweaver.com/)
@@ -110,6 +115,8 @@ Want to see your company here? [Submit a PR](https://github.com/zio/zio/edit/mas
 * [Yandex.Classifieds](https://o.yandex.ru)
 * [Audela](https://audela.ca)
 * [Valamis Group](https://valamis.com)
+* [Vish](https://getvish.com)
+* [Zooz](https://zooz.com/)
 
 # Sponsors
 
