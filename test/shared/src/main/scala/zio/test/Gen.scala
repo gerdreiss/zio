@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2020 John A. De Goes and the ZIO Contributors
+ * Copyright 2019-2021 John A. De Goes and the ZIO Contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -798,8 +798,8 @@ object Gen extends GenZIO with FunctionVariants with TimeVariants {
   /**
    * A generator of whitespace characters.
    */
-  val whitespaceChars: Seq[Char] =
-    (Char.MinValue to Char.MaxValue).filter(_.isWhitespace)
+  val whitespaceChars: Gen[Random, Char] =
+    Gen.elements((Char.MinValue to Char.MaxValue).filter(_.isWhitespace): _*)
 
   /**
    * Zips the specified generators together pairwise. The new generator will
